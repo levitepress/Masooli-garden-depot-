@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#102a43"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="styles.css"><title>Masooli Garden Depot</title></head>
+<body>
+<header><div><small>MASOOLI GARDEN DEPOT</small><h1 id="title">Sign in</h1></div><div class="head-actions"><span id="netStatus" class="status offline">OFFLINE</span><button id="installBtn" class="ghost hidden">Install app</button><button id="logout" class="ghost hidden">Sign out</button></div></header>
+<main>
+<section id="auth" class="card auth"><b class="logo">MGD</b><h2>Secure mobile access</h2>
+<div class="tabs"><button data-tab="login" class="active">Sign in</button><button data-tab="signup">Create account</button></div>
+<form id="login" class="form"><label>Email<input id="le" type="email" required></label><label>Password<input id="lp" type="password" required></label><button>Sign in</button></form>
+<form id="signup" class="form hidden"><label>Full name<input id="sn" required></label><label>Phone<input id="sp"></label><label>Email<input id="se" type="email" required></label><label>Password<input id="sw" type="password" minlength="8" required></label><button>Create account</button><p class="muted">The first account can claim the owner role. Worker accounts are assigned by the owner.</p></form>
+</section>
+<section id="waiting" class="card hidden"><h2>Awaiting assignment</h2><p class="muted">Your account exists but has not been assigned to Masooli Garden Depot as a worker.</p><button id="refresh">Check again</button></section>
+<section id="admin" class="hidden"><div id="astats" class="stats"></div><div class="nav" id="anav">
+<button data-s="dash">Dashboard</button><button data-s="stock">Stock</button><button data-s="purchases">Purchases</button><button data-s="workers">Workers</button><button data-s="settlements">Settlements</button><button data-s="products">Products</button><button data-s="reports">Reports</button></div><div id="acontent"></div></section>
+<section id="worker" class="hidden"><div id="wstats" class="stats"></div><div class="nav" id="wnav">
+<button data-s="home">My dashboard</button><button data-s="sell">Record sale</button><button data-s="stock">My stock</button><button data-s="history">My sales</button></div><div id="wcontent"></div></section>
+</main><footer>Masooli Garden Depot • Cloud stock & sales</footer>
+<div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>window.MGD={url:"https://capzbkmpgldzelwoycic.supabase.co",key:"sb_publishable_7lG6dF9sWwAAVCYMQvdnkg_uym6n93e",businessId:"3a5efd3e-a278-47bc-a47e-f81d79ce9343"};</script>
+<script src="app.js"></script></body></html>
