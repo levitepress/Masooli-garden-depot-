@@ -1,4 +1,9 @@
-const {createClient}=supabase;const db=createClient(MGD.url,MGD.key);
+const {createClient}=supabase;
+const db=createClient(MGD.url,MGD.key);
+const $=x=>document.getElementById(x);
+const money=n=>new Intl.NumberFormat("en-UG",{style:"currency",currency:"UGX",maximumFractionDigits:0}).format(Number(n||0));
+const esc=x=>String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+const date=x=>x?new Date(x).toLocaleString("en-UG",{dateStyle:"medium",timeStyle:"short"}):"—";
 let deferredInstallPrompt=null;
 function updateNetworkStatus(){const e=$("netStatus");if(!e)return;e.textContent=navigator.onLine?"ONLINE":"OFFLINE";e.className="status "+(navigator.onLine?"online":"offline");}
 window.addEventListener("online",updateNetworkStatus);window.addEventListener("offline",updateNetworkStatus);updateNetworkStatus();
@@ -6,7 +11,6 @@ window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredIns
 window.addEventListener("appinstalled",()=>{deferredInstallPrompt=null;const b=$("installBtn");if(b)b.classList.add("hidden");toast("Masooli Garden Depot installed on this phone")});
 document.addEventListener("click",e=>{if(e.target&&e.target.id==="installBtn"&&deferredInstallPrompt){deferredInstallPrompt.prompt();deferredInstallPrompt.userChoice.finally(()=>{deferredInstallPrompt=null;$("installBtn").classList.add("hidden")})}});
 let profile=null,worker=null,section="dash",wsection="home",channel=null;
-const $=x=>document.getElementById(x),money=n=>new Intl.NumberFormat("en-UG",{style:"currency",currency:"UGX",maximumFractionDigits:0}).format(Number(n||0)),esc=x=>String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])),date=x=>x?new Date(x).toLocaleString("en-UG",{dateStyle:"medium",timeStyle:"short"}):"—";
 function toast(x,bad=false){let t=$("toast");t.textContent=x;t.className="show";t.style.background=bad?"#a61b1b":"#102a43";setTimeout(()=>t.className="",3000)}
 function only(id){["auth","waiting","admin","worker"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));$("login").classList.toggle("hidden",b.dataset.tab!=="login");$("signup").classList.toggle("hidden",b.dataset.tab!=="signup")});
