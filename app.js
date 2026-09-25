@@ -8,6 +8,14 @@ document.addEventListener("click",e=>{if(e.target&&e.target.id==="installBtn"&&d
 let profile=null,worker=null,section="dash",wsection="home",channel=null;
 const $=x=>document.getElementById(x),money=n=>new Intl.NumberFormat("en-UG",{style:"currency",currency:"UGX",maximumFractionDigits:0}).format(Number(n||0)),esc=x=>String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])),date=x=>x?new Date(x).toLocaleString("en-UG",{dateStyle:"medium",timeStyle:"short"}):"—";
 function toast(x,bad=false){let t=$("toast");t.textContent=x;t.className="show";t.style.background=bad?"#a61b1b":"#102a43";setTimeout(()=>t.className="",3000)}
+async function read(q,label="Database") {
+  try {
+    const r=await q;
+    if(r.error){ console.error(label,r.error); toast(label+": "+r.error.message,true); return {data:[],error:r.error}; }
+    return {data:r.data||[],error:null};
+  } catch(e){ console.error(label,e); toast(label+": "+(e.message||e),true); return {data:[],error:e}; }
+}
+function dbErrorRows(cols,msg){return `<tr><td colspan="${cols}" class="bad">${esc(msg||"Could not load data.")}</td></tr>`}
 function only(id){["auth","waiting","admin","worker"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));$("login").classList.toggle("hidden",b.dataset.tab!=="login");$("signup").classList.toggle("hidden",b.dataset.tab!=="signup")});
 
@@ -59,29 +67,26 @@ async function refresh(){if(profile?.role==="admin")admin();else workerApp()}
 document.querySelectorAll("#anav button").forEach(b=>b.onclick=()=>{section=b.dataset.s;document.querySelectorAll("#anav button").forEach(x=>x.classList.toggle("active",x===b));admin()});
 document.querySelectorAll("#wnav button").forEach(b=>b.onclick=()=>{wsection=b.dataset.s;document.querySelectorAll("#wnav button").forEach(x=>x.classList.toggle("active",x===b));workerApp()});
 async function admin(){
-  let [pr,sr,wr,fr]=await Promise.all([
-    db.from("admin_product_catalog").select("*").order("name"),
-    db.from("warehouse_stock_balances").select("*"),
-    db.from("workers").select("*").order("name"),
-    db.from("worker_financial_summary").select("*")
+  const [pr,sr,wr,fr]=await Promise.all([
+    read(db.from("admin_product_catalog").select("*").order("name"),"Products"),
+    read(db.from("warehouse_stock_balances").select("*"),"Warehouse stock"),
+    read(db.from("workers").select("*").order("name"),"Workers"),
+    read(db.from("worker_financial_summary").select("*"),"Worker finances")
   ]);
-  // The catalog is a view. If the view is stale/unavailable, fall back to the
-  // products table so newly-added products still appear immediately to the owner.
-  let p=pr.data||[];
-  if(pr.error){
-    const direct=await db.from("products").select("*").order("name");
-    if(!direct.error) p=direct.data||[];
-    else toast("Could not load products: "+(pr.error.message||direct.error.message),true);
+  let p=pr.data||[],s=sr.data||[],w=wr.data||[],f=fr.data||[];
+  let expected=f.reduce((a,x)=>a+Number(x.expected_amount||0),0),paid=f.reduce((a,x)=>a+Number(x.paid_amount||0),0);
+  $("astats").innerHTML=[["Products",p.length],["Warehouse packets",s.reduce((a,x)=>a+Number(x.quantity_on_hand||0),0)],["Expected",money(expected)],["Outstanding",money(expected-paid)]].map(x=>`<div class="stat"><small>${x[0]}</small><strong>${x[1]}</strong></div>`).join("");
+  if(section==="dash")$("acontent").innerHTML=`<div class="section"><h3>Worker balances</h3>${finTable(f)}</div>`;
+  if(section==="stock")stock(p,s,w);
+  if(section==="purchases")purchases(p);
+  if(section==="settlements")settlements(w,f);
+  if(section==="workers")workers(w);
+  if(section==="products")products(p);
+  if(section==="reports"){
+    let[daily,monthly]=await Promise.all([read(db.from("admin_daily_report").select("*").limit(31),"Daily report"),read(db.from("admin_monthly_report").select("*").limit(24),"Monthly report")]);
+    $("acontent").innerHTML=`<div class="section"><h3>Worker financial report</h3>${finTable(f)}</div><div class="section"><h3>Daily sales report</h3><div class="table"><table><thead><tr><th>Date</th><th>Sales</th><th>Packets</th><th>Sales amount</th><th>Commission</th></tr></thead><tbody>${(daily.data||[]).map(x=>`<tr><td>${x.report_date}</td><td>${x.sales_count}</td><td>${x.packets_sold}</td><td>${money(x.sales_amount)}</td><td>${money(x.commission_amount)}</td></tr>`).join("")||"<tr><td colspan=5>No sales yet.</td></tr>"}</tbody></table></div></div><div class="section"><h3>Monthly sales report</h3><div class="table"><table><thead><tr><th>Month</th><th>Sales</th><th>Packets</th><th>Sales amount</th><th>Commission</th></tr></thead><tbody>${(monthly.data||[]).map(x=>`<tr><td>${x.report_month}</td><td>${x.sales_count}</td><td>${x.packets_sold}</td><td>${money(x.sales_amount)}</td><td>${money(x.commission_amount)}</td></tr>`).join("")||"<tr><td colspan=5>No sales yet.</td></tr>"}</tbody></table></div></div>`;
   }
-  let s=sr.data||[],w=wr.data||[],f=fr.data||[];
-  if(sr.error) toast("Could not load warehouse stock: "+sr.error.message,true);
-  if(wr.error) toast("Could not load workers: "+wr.error.message,true);
-  if(fr.error) toast("Could not load worker balances: "+fr.error.message,true);let expected=f.reduce((a,x)=>a+Number(x.expected_amount||0),0),paid=f.reduce((a,x)=>a+Number(x.paid_amount||0),0);$("astats").innerHTML=[["Products",p.length],["Warehouse packets",s.reduce((a,x)=>a+Number(x.quantity_on_hand||0),0)],["Expected",money(expected)],["Outstanding",money(expected-paid)]].map(x=>`<div class="stat"><small>${x[0]}</small><strong>${x[1]}</strong></div>`).join("");
-if(section==="dash")$("acontent").innerHTML=`<div class="section"><h3>Worker balances</h3>${finTable(f)}</div>`;
-if(section==="stock")stock(p,s,w); if(section==="purchases")purchases(p); if(section==="settlements")settlements(w,f);
-if(section==="workers")workers(w);
-if(section==="products")products(p);
-if(section==="reports"){let[daily,monthly]=await Promise.all([db.from("admin_daily_report").select("*").limit(31),db.from("admin_monthly_report").select("*").limit(24)]);$("acontent").innerHTML=`<div class="section"><h3>Worker financial report</h3>${finTable(f)}</div><div class="section"><h3>Daily sales report</h3><div class="table"><table><thead><tr><th>Date</th><th>Sales</th><th>Packets</th><th>Sales amount</th><th>Commission</th></tr></thead><tbody>${(daily.data||[]).map(x=>`<tr><td>${x.report_date}</td><td>${x.sales_count}</td><td>${x.packets_sold}</td><td>${money(x.sales_amount)}</td><td>${money(x.commission_amount)}</td></tr>`).join("")||"<tr><td colspan=5>No sales yet.</td></tr>"}</tbody></table></div></div><div class="section"><h3>Monthly sales report</h3><div class="table"><table><thead><tr><th>Month</th><th>Sales</th><th>Packets</th><th>Sales amount</th><th>Commission</th></tr></thead><tbody>${(monthly.data||[]).map(x=>`<tr><td>${x.report_month}</td><td>${x.sales_count}</td><td>${x.packets_sold}</td><td>${money(x.sales_amount)}</td><td>${money(x.commission_amount)}</td></tr>`).join("")||"<tr><td colspan=5>No sales yet.</td></tr>"}</tbody></table></div></div>`}}
+}
 function finTable(f){return `<div class="table"><table><thead><tr><th>Worker</th><th>Expected</th><th>Paid</th><th>Outstanding</th><th>Commission</th></tr></thead><tbody>${f.map(x=>`<tr><td>${esc(x.worker_name)}</td><td>${money(x.expected_amount)}</td><td>${money(x.paid_amount)}</td><td class="${Number(x.outstanding_amount)>0?"bad":"good"}">${money(x.outstanding_amount)}</td><td>${money(x.commission_amount)}</td></tr>`).join("")||"<tr><td colspan=5>No activity yet.</td></tr>"}</tbody></table></div>`}
 function stock(p,s,w){$("acontent").innerHTML=`<div class="section"><h3>Warehouse stock</h3><div class="table"><table><thead><tr><th>Product</th><th>Packets</th><th>Buying</th><th>Selling</th><th>Margin</th></tr></thead><tbody>${p.map(x=>{let y=s.find(z=>z.product_id===x.id);return `<tr><td>${esc(x.name)}</td><td>${y?.quantity_on_hand||0}</td><td>${money(x.buying_price)}</td><td>${money(x.selling_price)}</td><td>${money(Number(x.selling_price)-Number(x.buying_price))}</td></tr>`}).join("")}</tbody></table></div></div>
 <div class="section"><h3>Issue stock to worker</h3><form id="issue" class="form"><div class="row"><label>Worker<select id="iw">${w.filter(x=>x.active).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></label><label>Product<select id="ip">${p.filter(x=>x.active).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></label><label>Packets<input id="iq" type="number" min="1" required></label></div><button>Issue stock</button></form></div>
@@ -96,33 +101,7 @@ async function workers(w){
   $("wf").onsubmit=async e=>{e.preventDefault();let r=await db.rpc("create_worker",{p_name:$("wn").value,p_phone:$("wp").value,p_commission_rate:+$("wr").value});if(r.error)toast(r.error.message,true);else{toast("Worker added");admin()}}
 }
 window.assign=async pid=>{let workerId=$("aw-"+pid)?.value;if(!workerId)return toast("Add an unassigned worker record first.",true);let r=await db.rpc("assign_worker_account",{p_worker_id:workerId,p_profile_id:pid});if(r.error)toast(r.error.message,true);else{toast("Account assigned");admin()}};
-async function products(p){
-  // Always refresh the product list when opening this section so the owner sees
-  // the latest database state instead of an old in-memory list.
-  const fresh=await db.from("admin_product_catalog").select("*").order("name");
-  if(!fresh.error) p=fresh.data||p;
-  else {
-    const direct=await db.from("products").select("*").order("name");
-    if(!direct.error) p=direct.data||p;
-  }
-  $("acontent").innerHTML=`<div class="section"><h3>Products & prices</h3><form id="pf" class="form"><div class="row"><label>Name<input id="pn" required></label><label>SKU<input id="ps"></label><label>Pack size<input id="pk" type="number" value="6" min="1"></label><label>Buying<input id="pb" type="number" min="0" required></label><label>Selling<input id="pv" type="number" min="0" required></label></div><button type="submit">Add product</button></form></div><div class="section"><h3>Product catalogue</h3><div class="table"><table><thead><tr><th>Product</th><th>SKU</th><th>Pack</th><th>Buying</th><th>Selling</th></tr></thead><tbody>${p.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.sku||"—")}</td><td>${x.pack_size}</td><td>${money(x.buying_price)}</td><td>${money(x.selling_price)}</td></tr>`).join("")||'<tr><td colspan="5">No products found.</td></tr>'}</tbody></table></div></div>`;
-  $("pf").onsubmit=async e=>{
-    e.preventDefault();
-    const btn=e.submitter||$("pf").querySelector("button");
-    if(btn) btn.disabled=true;
-    const payload={p_name:$("pn").value.trim(),p_sku:$("ps").value.trim(),p_pack_size:+$("pk").value,p_buying_price:+$("pb").value,p_selling_price:+$("pv").value,p_active:true};
-    const r=await db.rpc("upsert_product",payload);
-    if(r.error){toast("Product was not saved: "+r.error.message,true);if(btn)btn.disabled=false;return}
-    toast("Product saved. Refreshing catalogue…");
-    // Re-read from Supabase instead of relying on the old admin() array.
-    const latest=await db.from("admin_product_catalog").select("*").order("name");
-    if(latest.error){
-      const direct=await db.from("products").select("*").order("name");
-      if(direct.error) toast("Saved, but catalogue could not refresh: "+latest.error.message,true);
-      else products(direct.data||[]);
-    } else products(latest.data||[]);
-  };
-}
+function products(p){$("acontent").innerHTML=`<div class="section"><h3>Products & prices</h3><form id="pf" class="form"><div class="row"><label>Name<input id="pn" required></label><label>SKU<input id="ps"></label><label>Pack size<input id="pk" type="number" value="6" min="1"></label><label>Buying<input id="pb" type="number" min="0" required></label><label>Selling<input id="pv" type="number" min="0" required></label></div><button>Add product</button></form></div><div class="section"><div class="table"><table><thead><tr><th>Product</th><th>Pack</th><th>Buying</th><th>Selling</th></tr></thead><tbody>${p.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.pack_size}</td><td>${money(x.buying_price)}</td><td>${money(x.selling_price)}</td></tr>`).join("")||"<tr><td colspan=4>No products found.</td></tr>"}</tbody></table></div></div>`;$("pf").onsubmit=async e=>{e.preventDefault();let b=e.submitter;b.disabled=true;let r=await db.rpc("upsert_product",{p_name:$("pn").value.trim(),p_sku:$("ps").value.trim(),p_pack_size:+$("pk").value,p_buying_price:+$("pb").value,p_selling_price:+$("pv").value,p_active:true});b.disabled=false;if(r.error){toast(r.error.message,true);return}toast("Product added");section="products";await admin()}}
 
 async function purchases(p){
  $("acontent").innerHTML=`<div class="section"><h3>Record purchase / stock received</h3><form id="purchaseForm" class="form"><div class="row"><label>Product<select id="pp">${p.filter(x=>x.active).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></label><label>Packets<input id="pq" type="number" min="1" required></label><label>Buying price / packet<input id="pc" type="number" min="0" required></label><label>Supplier<input id="psup"></label><label>Reference<input id="pref"></label></div><button>Save purchase</button></form></div><div class="section"><h3>Stock receipt history</h3><div id="purchaseHistory">Loading…</div></div>`;

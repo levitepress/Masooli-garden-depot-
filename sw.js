@@ -1,4 +1,4 @@
-const CACHE = "mgd-shell-v3";
+const CACHE = "mgd-shell-v4";
 const SUPABASE_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"];
 
@@ -7,8 +7,8 @@ self.addEventListener("install", event => {
     const cache = await caches.open(CACHE);
     await cache.addAll(ASSETS);
     try {
-      const response = await fetch(SUPABASE_CDN, { mode: "no-cors" });
-      await cache.put(SUPABASE_CDN, response);
+      const response = await fetch(SUPABASE_CDN);
+      if (response.ok || response.type === "opaque") await cache.put(SUPABASE_CDN, response);
     } catch (_) {}
     await self.skipWaiting();
   })());
@@ -25,27 +25,38 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
-  // Static app files use network-first so a new Vercel deployment is picked up
-  // immediately. If offline, fall back to the cached version.
+
+  // Keep the app shell available immediately, while updating it in the background.
+  // This avoids breaking startup when a phone briefly cannot reach Vercel/CDN.
   if (url.origin === self.location.origin) {
     event.respondWith((async () => {
-      try {
-        const response = await fetch(event.request, { cache: "no-store" });
+      const cached = await caches.match(event.request);
+      const network = fetch(event.request).then(response => {
         if (response.ok) {
           const copy = response.clone();
           caches.open(CACHE).then(c => c.put(event.request, copy)).catch(() => {});
         }
         return response;
-      } catch (_) {
-        return (await caches.match(event.request)) || caches.match("./index.html");
-      }
+      }).catch(() => null);
+      return cached || await network || caches.match("./index.html");
     })());
     return;
   }
+
+  // Keep the Supabase client library cached so the app can start reliably.
   if (event.request.url === SUPABASE_CDN) {
     event.respondWith((async () => {
-      try { return await fetch(event.request); }
-      catch (_) { return caches.match(event.request); }
+      const cached = await caches.match(event.request);
+      try {
+        const response = await fetch(event.request);
+        if (response.ok || response.type === "opaque") {
+          const copy = response.clone();
+          caches.open(CACHE).then(c => c.put(event.request, copy)).catch(() => {});
+        }
+        return response;
+      } catch (_) {
+        return cached || Response.error();
+      }
     })());
   }
 });
