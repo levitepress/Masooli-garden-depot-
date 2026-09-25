@@ -1,11 +1,13 @@
-const {createClient}=supabase;const db=createClient(MGD.url,MGD.key);
+const {createClient}=supabase;
+const freshFetch=(url,options={})=>fetch(url,{...options,cache:"no-store"});
+const db=createClient(MGD.url,MGD.key,{global:{fetch:freshFetch}});
 let deferredInstallPrompt=null;
 function updateNetworkStatus(){const e=$("netStatus");if(!e)return;e.textContent=navigator.onLine?"ONLINE":"OFFLINE";e.className="status "+(navigator.onLine?"online":"offline");}
 window.addEventListener("online",updateNetworkStatus);window.addEventListener("offline",updateNetworkStatus);updateNetworkStatus();
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e;const b=$("installBtn");if(b)b.classList.remove("hidden")});
 window.addEventListener("appinstalled",()=>{deferredInstallPrompt=null;const b=$("installBtn");if(b)b.classList.add("hidden");toast("Masooli Garden Depot installed on this phone")});
 document.addEventListener("click",e=>{if(e.target&&e.target.id==="installBtn"&&deferredInstallPrompt){deferredInstallPrompt.prompt();deferredInstallPrompt.userChoice.finally(()=>{deferredInstallPrompt=null;$("installBtn").classList.add("hidden")})}});
-let profile=null,worker=null,section="dash",wsection="home",channel=null;
+let profile=null,worker=null,section="dash",wsection="home",channel=null,refreshTimer=null,refreshBusy=false,refreshQueued=false;
 const $=x=>document.getElementById(x),money=n=>new Intl.NumberFormat("en-UG",{style:"currency",currency:"UGX",maximumFractionDigits:0}).format(Number(n||0)),esc=x=>String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])),date=x=>x?new Date(x).toLocaleString("en-UG",{dateStyle:"medium",timeStyle:"short"}):"—";
 function toast(x,bad=false){let t=$("toast");t.textContent=x;t.className="show";t.style.background=bad?"#a61b1b":"#102a43";setTimeout(()=>t.className="",3000)}
 async function read(q,label="Database") {
@@ -49,7 +51,8 @@ async function syncOfflineSales(){
     }
   }
 }
-window.addEventListener("online",()=>{toast("Internet restored. Syncing…");syncOfflineSales().then(()=>workerApp())});
+window.addEventListener("online",()=>{toast("Internet restored. Refreshing cloud data…");syncOfflineSales().then(()=>load())});
+window.addEventListener("visibilitychange",()=>{if(!document.hidden&&navigator.onLine&&profile) refresh()});
 window.addEventListener("offline",()=>toast("Offline mode: sales can be queued and synced later."));
 async function load(){const {data:{user}}=await db.auth.getUser();if(!user){only("auth");$("title").textContent="Sign in";$("logout").classList.add("hidden");return}
 $("logout").classList.remove("hidden");let q=await db.from("profiles").select("*").eq("id",user.id).maybeSingle();if(q.error)return toast(q.error.message,true);profile=q.data;
@@ -62,8 +65,30 @@ if(profile.role==="admin"){only("admin");$("title").textContent="Owner Dashboard
 $("login").onsubmit=async e=>{e.preventDefault();let r=await db.auth.signInWithPassword({email:$("le").value,password:$("lp").value});if(r.error)toast(r.error.message,true);else load()};
 $("signup").onsubmit=async e=>{e.preventDefault();let r=await db.auth.signUp({email:$("se").value,password:$("sw").value,options:{data:{full_name:$("sn").value,phone:$("sp").value}}});if(r.error)return toast(r.error.message,true);if(r.data.session){let c=await db.rpc("set_initial_owner",{p_business_id:MGD.businessId});if(!c.error){toast("Owner account created");return load()}}toast("Account created. Confirm your email if required, then sign in.")};
 $("logout").onclick=async()=>{await db.auth.signOut();location.reload()};$("refresh").onclick=load;
-function live(){if(channel)db.removeChannel(channel);channel=db.channel("mgd-live").on("postgres_changes",{event:"*",schema:"public",table:"sales"},refresh).on("postgres_changes",{event:"*",schema:"public",table:"stock_movements"},refresh).on("postgres_changes",{event:"*",schema:"public",table:"worker_payments"},refresh).subscribe()}
-async function refresh(){if(profile?.role==="admin")admin();else workerApp()}
+function live(){
+  if(channel) db.removeChannel(channel);
+  if(refreshTimer) clearInterval(refreshTimer);
+  channel=db.channel("mgd-live")
+    .on("postgres_changes",{event:"*",schema:"public",table:"products"},refresh)
+    .on("postgres_changes",{event:"*",schema:"public",table:"product_costs"},refresh)
+    .on("postgres_changes",{event:"*",schema:"public",table:"purchases"},refresh)
+    .on("postgres_changes",{event:"*",schema:"public",table:"sales"},refresh)
+    .on("postgres_changes",{event:"*",schema:"public",table:"sale_items"},refresh)
+    .on("postgres_changes",{event:"*",schema:"public",table:"stock_movements"},refresh)
+    .on("postgres_changes",{event:"*",schema:"public",table:"stock_adjustments"},refresh)
+    .on("postgres_changes",{event:"*",schema:"public",table:"stock_returns"},refresh)
+    .on("postgres_changes",{event:"*",schema:"public",table:"worker_payments"},refresh)
+    .subscribe((status)=>console.log("MGD realtime:",status));
+  // Realtime gives immediate updates; this periodic online refresh is a safety net for
+  // tables/views that are not enabled for Realtime or changes made elsewhere.
+  refreshTimer=setInterval(()=>{if(navigator.onLine) refresh()},15000);
+}
+async function refresh(){
+  if(!navigator.onLine||!profile||refreshBusy){if(refreshBusy)refreshQueued=true;return}
+  refreshBusy=true;
+  try{if(profile.role==="admin")await admin();else await workerApp()}
+  finally{refreshBusy=false;if(refreshQueued){refreshQueued=false;setTimeout(refresh,250)}}
+}
 document.querySelectorAll("#anav button").forEach(b=>b.onclick=()=>{section=b.dataset.s;document.querySelectorAll("#anav button").forEach(x=>x.classList.toggle("active",x===b));admin()});
 document.querySelectorAll("#wnav button").forEach(b=>b.onclick=()=>{wsection=b.dataset.s;document.querySelectorAll("#wnav button").forEach(x=>x.classList.toggle("active",x===b));workerApp()});
 async function admin(){
@@ -105,7 +130,7 @@ function products(p){$("acontent").innerHTML=`<div class="section"><h3>Products 
 
 async function purchases(p){
  $("acontent").innerHTML=`<div class="section"><h3>Record purchase / stock received</h3><form id="purchaseForm" class="form"><div class="row"><label>Product<select id="pp">${p.filter(x=>x.active).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></label><label>Packets<input id="pq" type="number" min="1" required></label><label>Buying price / packet<input id="pc" type="number" min="0" required></label><label>Supplier<input id="psup"></label><label>Reference<input id="pref"></label></div><button>Save purchase</button></form></div><div class="section"><h3>Stock receipt history</h3><div id="purchaseHistory">Loading…</div></div>`;
- $("purchaseForm").onsubmit=async e=>{e.preventDefault();let r=await db.rpc("record_purchase",{p_product_id:$("pp").value,p_quantity:+$("pq").value,p_unit_cost:+$("pc").value,p_supplier:$("psup").value,p_reference:$("pref").value});if(r.error)toast(r.error.message,true);else{toast("Purchase recorded");purchases(p)}};
+ $("purchaseForm").onsubmit=async e=>{e.preventDefault();let r=await db.rpc("record_purchase",{p_product_id:$("pp").value,p_quantity:+$("pq").value,p_unit_cost:+$("pc").value,p_supplier:$("psup").value,p_reference:$("pref").value});if(r.error)toast(r.error.message,true);else{toast("Purchase recorded");await admin()}};
  let q=await db.from("admin_purchases_summary").select("*").order("purchased_at",{ascending:false}).limit(50);
  $("purchaseHistory").innerHTML=`<div class="table"><table><thead><tr><th>Date</th><th>Product</th><th>Packets</th><th>Unit cost</th><th>Supplier</th></tr></thead><tbody>${(q.data||[]).map(x=>`<tr><td>${date(x.purchased_at)}</td><td>${esc(x.product_name)}</td><td>${x.quantity}</td><td>${money(x.unit_cost)}</td><td>${esc(x.supplier||"—")}</td></tr>`).join("")||"<tr><td colspan=5>No purchases recorded.</td></tr>"}</tbody></table></div>`;
 }

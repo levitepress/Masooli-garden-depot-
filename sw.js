@@ -1,4 +1,4 @@
-const CACHE = "mgd-shell-v4";
+const CACHE = "mgd-shell-v6";
 const SUPABASE_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"];
 
@@ -30,15 +30,18 @@ self.addEventListener("fetch", event => {
   // This avoids breaking startup when a phone briefly cannot reach Vercel/CDN.
   if (url.origin === self.location.origin) {
     event.respondWith((async () => {
-      const cached = await caches.match(event.request);
-      const network = fetch(event.request).then(response => {
+      try {
+        // Online: prefer the newest Vercel files so product/UI fixes are not hidden by the old PWA cache.
+        const response = await fetch(event.request, { cache: "no-store" });
         if (response.ok) {
           const copy = response.clone();
           caches.open(CACHE).then(c => c.put(event.request, copy)).catch(() => {});
         }
         return response;
-      }).catch(() => null);
-      return cached || await network || caches.match("./index.html");
+      } catch (_) {
+        // Offline: fall back to the last cached app shell.
+        return await caches.match(event.request) || caches.match("./index.html");
+      }
     })());
     return;
   }
