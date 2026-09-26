@@ -2,8 +2,31 @@ const {createClient}=supabase;
 const freshFetch=(url,options={})=>fetch(url,{...options,cache:"no-store"});
 const db=createClient(MGD.url,MGD.key,{global:{fetch:freshFetch}});
 let deferredInstallPrompt=null;
-function updateNetworkStatus(){const e=$("netStatus");if(!e)return;e.textContent=navigator.onLine?"ONLINE":"OFFLINE";e.className="status "+(navigator.onLine?"online":"offline");}
-window.addEventListener("online",updateNetworkStatus);window.addEventListener("offline",updateNetworkStatus);updateNetworkStatus();
+let cloudOnline=false;
+function updateNetworkStatus(){
+  const e=$("netStatus"); if(!e)return;
+  const online=navigator.onLine && cloudOnline;
+  e.textContent=!navigator.onLine?"OFFLINE":cloudOnline?"ONLINE":"CHECKING";
+  e.className="status "+(online?"online":"offline");
+}
+async function checkCloudConnection(){
+  if(!navigator.onLine){cloudOnline=false;updateNetworkStatus();return false}
+  try{
+    const r=await fetch(MGD.url+"/rest/v1/",{
+      method:"GET",
+      headers:{apikey:MGD.key},
+      cache:"no-store"
+    });
+    cloudOnline=r.ok;
+  }catch(_){cloudOnline=false}
+  updateNetworkStatus();
+  return cloudOnline;
+}
+window.addEventListener("online",()=>{checkCloudConnection();updateNetworkStatus()});
+window.addEventListener("offline",()=>{cloudOnline=false;updateNetworkStatus()});
+updateNetworkStatus();
+checkCloudConnection();
+setInterval(checkCloudConnection,30000);
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e;const b=$("installBtn");if(b)b.classList.remove("hidden")});
 window.addEventListener("appinstalled",()=>{deferredInstallPrompt=null;const b=$("installBtn");if(b)b.classList.add("hidden");toast("Masooli Garden Depot installed on this phone")});
 document.addEventListener("click",e=>{if(e.target&&e.target.id==="installBtn"&&deferredInstallPrompt){deferredInstallPrompt.prompt();deferredInstallPrompt.userChoice.finally(()=>{deferredInstallPrompt=null;$("installBtn").classList.add("hidden")})}});
@@ -13,7 +36,14 @@ function toast(x,bad=false){let t=$("toast");t.textContent=x;t.className="show";
 async function read(q,label="Database") {
   try {
     const r=await q;
-    if(r.error){ console.error(label,r.error); toast(label+": "+r.error.message,true); return {data:[],error:r.error}; }
+    if(r.error){
+      console.error(label,r.error);
+      if(/Failed to fetch|NetworkError|Load failed|fetch failed|timed out|timeout/i.test(r.error.message||"")){
+        cloudOnline=false; updateNetworkStatus();
+      }
+      toast(label+": "+r.error.message,true);
+      return {data:[],error:r.error};
+    }
     return {data:r.data||[],error:null};
   } catch(e){ console.error(label,e); toast(label+": "+(e.message||e),true); return {data:[],error:e}; }
 }
@@ -78,7 +108,12 @@ function live(){
     .on("postgres_changes",{event:"*",schema:"public",table:"stock_adjustments"},refresh)
     .on("postgres_changes",{event:"*",schema:"public",table:"stock_returns"},refresh)
     .on("postgres_changes",{event:"*",schema:"public",table:"worker_payments"},refresh)
-    .subscribe((status)=>console.log("MGD realtime:",status));
+    .on("postgres_changes",{event:"*",schema:"public",table:"workers"},refresh)
+    .subscribe((status)=>{
+      console.log("MGD realtime:",status);
+      if(status==="SUBSCRIBED"){cloudOnline=true;updateNetworkStatus();refresh();}
+      else if(status==="CHANNEL_ERROR"||status==="TIMED_OUT"||status==="CLOSED"){cloudOnline=false;updateNetworkStatus();}
+    });
   // Realtime gives immediate updates; this periodic online refresh is a safety net for
   // tables/views that are not enabled for Realtime or changes made elsewhere.
   refreshTimer=setInterval(()=>{if(navigator.onLine) refresh()},15000);
@@ -126,7 +161,7 @@ async function workers(w){
   $("wf").onsubmit=async e=>{e.preventDefault();let r=await db.rpc("create_worker",{p_name:$("wn").value,p_phone:$("wp").value,p_commission_rate:+$("wr").value});if(r.error)toast(r.error.message,true);else{toast("Worker added");admin()}}
 }
 window.assign=async pid=>{let workerId=$("aw-"+pid)?.value;if(!workerId)return toast("Add an unassigned worker record first.",true);let r=await db.rpc("assign_worker_account",{p_worker_id:workerId,p_profile_id:pid});if(r.error)toast(r.error.message,true);else{toast("Account assigned");admin()}};
-function products(p){$("acontent").innerHTML=`<div class="section"><h3>Products & prices</h3><form id="pf" class="form"><div class="row"><label>Name<input id="pn" required></label><label>SKU<input id="ps"></label><label>Pack size<input id="pk" type="number" value="6" min="1"></label><label>Buying<input id="pb" type="number" min="0" required></label><label>Selling<input id="pv" type="number" min="0" required></label></div><button>Add product</button></form></div><div class="section"><div class="table"><table><thead><tr><th>Product</th><th>Pack</th><th>Buying</th><th>Selling</th></tr></thead><tbody>${p.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.pack_size}</td><td>${money(x.buying_price)}</td><td>${money(x.selling_price)}</td></tr>`).join("")||"<tr><td colspan=4>No products found.</td></tr>"}</tbody></table></div></div>`;$("pf").onsubmit=async e=>{e.preventDefault();let b=e.submitter;b.disabled=true;let r=await db.rpc("upsert_product",{p_name:$("pn").value.trim(),p_sku:$("ps").value.trim(),p_pack_size:+$("pk").value,p_buying_price:+$("pb").value,p_selling_price:+$("pv").value,p_active:true});b.disabled=false;if(r.error){toast(r.error.message,true);return}toast("Product added");section="products";await admin()}}
+function products(p){$("acontent").innerHTML=`<div class="section"><h3>Products & prices</h3><form id="pf" class="form"><div class="row"><label>Name<input id="pn" required></label><label>SKU<input id="ps"></label><label>Pack size<input id="pk" type="number" value="6" min="1"></label><label>Buying<input id="pb" type="number" min="0" required></label><label>Selling<input id="pv" type="number" min="0" required></label></div><button>Add product</button></form></div><div class="section"><div class="table"><table><thead><tr><th>Product</th><th>Pack</th><th>Buying</th><th>Selling</th></tr></thead><tbody>${p.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.pack_size}</td><td>${money(x.buying_price)}</td><td>${money(x.selling_price)}</td></tr>`).join("")||"<tr><td colspan=4>No products found.</td></tr>"}</tbody></table></div></div>`;$("pf").onsubmit=async e=>{e.preventDefault();let b=e.submitter;b.disabled=true;let r=await db.rpc("upsert_product",{p_product_id:null,p_name:$("pn").value.trim(),p_sku:$("ps").value.trim(),p_pack_size:+$("pk").value,p_buying_price:+$("pb").value,p_selling_price:+$("pv").value,p_active:true});b.disabled=false;if(r.error){toast(r.error.message,true);return}toast("Product added");section="products";await admin()}}
 
 async function purchases(p){
  $("acontent").innerHTML=`<div class="section"><h3>Record purchase / stock received</h3><form id="purchaseForm" class="form"><div class="row"><label>Product<select id="pp">${p.filter(x=>x.active).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></label><label>Packets<input id="pq" type="number" min="1" required></label><label>Buying price / packet<input id="pc" type="number" min="0" required></label><label>Supplier<input id="psup"></label><label>Reference<input id="pref"></label></div><button>Save purchase</button></form></div><div class="section"><h3>Stock receipt history</h3><div id="purchaseHistory">Loading…</div></div>`;
@@ -158,4 +193,7 @@ if(wsection==="stock")$("wcontent").innerHTML=`<div class="section"><h3>My stock
 if(wsection==="history")$("wcontent").innerHTML=`<div class="section"><h3>My sales history</h3>${saleTable(h)}</div>`;
 if(wsection==="sell"){let pending=await queuedSales();$("wcontent").innerHTML=`<div class="section"><h3>Record sale</h3><p class="muted">If the phone loses internet, the sale is saved securely on the phone and automatically synced when connection returns.</p><form id="sf" class="form"><label>Product<select id="spx">${c.filter(x=>x.active).map(x=>`<option value="${x.id}">${esc(x.name)} — ${money(x.selling_price)}</option>`).join("")}</select></label><div class="row"><label>Packets sold<input id="sq" type="number" min="1" required></label><label>Receipt number<input id="sr"></label></div><button>Save sale</button></form><p class="muted">Pending offline sales: ${pending.length}</p></div>`;$("sf").onsubmit=async e=>{e.preventDefault();let item={client_ref:"OFF-"+crypto.randomUUID(),product_id:$("spx").value,quantity:+$("sq").value,receipt_no:$("sr").value,sold_at:new Date().toISOString()};if(!navigator.onLine){await queueSale(item);toast("Saved offline; it will sync automatically.");return workerApp()}let r=await db.rpc("record_worker_sale",{p_product_id:item.product_id,p_quantity:item.quantity,p_receipt_no:item.receipt_no,p_sold_at:item.sold_at,p_client_ref:item.client_ref});if(r.error){if(/Failed to fetch|NetworkError|Load failed/i.test(r.error.message)){await queueSale(item);toast("Saved offline; it will sync automatically.");}else toast(r.error.message,true)}else toast("Sale recorded");workerApp()};syncOfflineSales()}}
 function saleTable(h){return `<div class="table"><table><thead><tr><th>Date</th><th>Receipt</th><th>Expected</th><th>Commission</th></tr></thead><tbody>${h.map(x=>`<tr><td>${date(x.sold_at)}</td><td>${esc(x.receipt_no||"—")}</td><td>${money(x.expected_amount)}</td><td>${money(x.commission_amount)}</td></tr>`).join("")||"<tr><td colspan=4>No sales yet.</td></tr>"}</tbody></table></div>`}
-db.auth.onAuthStateChange(()=>setTimeout(load,0));if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});window.addEventListener("load",()=>setTimeout(syncOfflineSales,1000));load();
+db.auth.onAuthStateChange(()=>setTimeout(load,0));
+if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+window.addEventListener("load",()=>{checkCloudConnection();setTimeout(syncOfflineSales,1000)});
+load();
