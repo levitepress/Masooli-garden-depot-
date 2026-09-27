@@ -95,6 +95,11 @@ if(profile.role==="admin"){only("admin");$("title").textContent="Owner Dashboard
 $("login").onsubmit=async e=>{e.preventDefault();let r=await db.auth.signInWithPassword({email:$("le").value,password:$("lp").value});if(r.error)toast(r.error.message,true);else load()};
 $("signup").onsubmit=async e=>{e.preventDefault();let r=await db.auth.signUp({email:$("se").value,password:$("sw").value,options:{data:{full_name:$("sn").value,phone:$("sp").value}}});if(r.error)return toast(r.error.message,true);if(r.data.session){let c=await db.rpc("set_initial_owner",{p_business_id:MGD.businessId});if(!c.error){toast("Owner account created");return load()}}toast("Account created. Confirm your email if required, then sign in.")};
 $("logout").onclick=async()=>{await db.auth.signOut();location.reload()};$("refresh").onclick=load;
+document.addEventListener("focusout",()=>{
+  if(refreshQueued && navigator.onLine && profile){
+    setTimeout(()=>{if(refreshQueued)refresh()},300);
+  }
+});
 function live(){
   if(channel) db.removeChannel(channel);
   if(refreshTimer) clearInterval(refreshTimer);
@@ -114,6 +119,14 @@ function live(){
   refreshTimer=setInterval(()=>{if(navigator.onLine) refresh()},15000);
 }
 async function refresh(){
+  // Never rebuild the current screen while the user is typing/selecting a form field.
+  // Realtime events and the 15-second safety refresh can otherwise replace the form
+  // DOM and make partially entered product/purchase/worker data disappear.
+  const active=document.activeElement;
+  if(active && (active.tagName==="INPUT" || active.tagName==="TEXTAREA" || active.tagName==="SELECT")){
+    refreshQueued=true;
+    return;
+  }
   if(!navigator.onLine||!profile||refreshBusy){if(refreshBusy)refreshQueued=true;return}
   refreshBusy=true;
   try{if(profile.role==="admin")await admin();else await workerApp()}
