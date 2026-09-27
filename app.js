@@ -78,6 +78,14 @@ window.addEventListener("visibilitychange",()=>{if(!document.hidden&&navigator.o
 window.addEventListener("offline",()=>toast("Offline mode: sales can be queued and synced later."));
 async function load(){const {data:{user}}=await db.auth.getUser();if(!user){only("auth");$("title").textContent="Sign in";$("logout").classList.add("hidden");return}
 $("logout").classList.remove("hidden");let q=await db.from("profiles").select("*").eq("id",user.id).maybeSingle();if(q.error)return toast(q.error.message,true);profile=q.data;
+if(!profile){
+  const meta=user.user_metadata||{};
+  const reg=await db.rpc("register_worker_profile",{p_full_name:meta.full_name||null,p_phone:meta.phone||null});
+  if(reg.error)return toast("Account profile setup failed: "+reg.error.message,true);
+  q=await db.from("profiles").select("*").eq("id",user.id).maybeSingle();
+  if(q.error)return toast(q.error.message,true);
+  profile=q.data;
+}
 if(!profile?.business_id){
   const claim=await db.rpc("set_initial_owner",{p_business_id:MGD.businessId});
   if(!claim.error){toast("Owner account activated");return load()}
