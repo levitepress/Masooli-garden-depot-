@@ -1,4 +1,4 @@
-const CACHE = "mgd-shell-v9";
+const CACHE = "mgd-shell-v11";
 const SUPABASE_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"];
 
