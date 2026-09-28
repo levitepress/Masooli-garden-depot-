@@ -8,8 +8,8 @@
 <main>
 <section id="auth" class="card auth"><b class="logo">MGD</b><h2>Secure mobile access</h2>
 <div class="tabs"><button data-tab="login" class="active">Sign in</button><button data-tab="signup">Create account</button></div>
-<form id="login" class="form"><label>Email or Worker Login Code<input id="le" type="text" placeholder="Email or MGD-PETER-1234" required></label><label>Password<input id="lp" type="password" required></label><button>Sign in</button></form>
-<form id="signup" class="form hidden"><label>Full name<input id="sn" required></label><label>Phone<input id="sp"></label><label>Email<input id="se" type="email" required></label><label>Password<input id="sw" type="password" minlength="8" required></label><button>Create account</button><p class="muted">Owner: use an email account. New workers do not need an email; the owner can create their worker login from the Workers section.</p></form>
+<form id="login" class="form"><label>Email<input id="le" type="email" required></label><label>Password<input id="lp" type="password" required></label><button>Sign in</button></form>
+<form id="signup" class="form hidden"><label>Full name<input id="sn" required></label><label>Phone<input id="sp"></label><label>Email<input id="se" type="email" required></label><label>Password<input id="sw" type="password" minlength="8" required></label><button>Create account</button><p class="muted">The first account can claim the owner role. Worker accounts are assigned by the owner.</p></form>
 </section>
 <section id="waiting" class="card hidden"><h2>Awaiting assignment</h2><p class="muted">Your account exists but has not been assigned to Masooli Garden Depot as a worker.</p><button id="refresh">Check again</button></section>
 <section id="admin" class="hidden"><div id="astats" class="stats"></div><div class="nav" id="anav">
