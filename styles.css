@@ -3,3 +3,13 @@
 .nav button:nth-child(1){border-left:4px solid #2e7d32}.nav button:nth-child(2){border-left:4px solid #1565c0}.nav button:nth-child(3){border-left:4px solid #ef6c00}.nav button:nth-child(4){border-left:4px solid #7b1fa2}.nav button:nth-child(5){border-left:4px solid #c62828}.nav button:nth-child(6){border-left:4px solid #00838f}.nav button:nth-child(7){border-left:4px solid #455a64}
 button.danger{background:#b71c1c}.archive{background:#ef6c00!important}.restore{background:#2e7d32!important}.info{background:#1565c0!important}
 .form input:focus,.form select:focus{outline:3px solid rgba(21,101,192,.18)}
+@media print {
+  body { background:#fff !important; }
+  header, #login, #waiting, #worker, #anav, .nav, button, .toast, .muted { display:none !important; }
+  #admin, #acontent { display:block !important; }
+  .section { border:0 !important; box-shadow:none !important; page-break-inside:avoid; }
+  .balance-person.hidden { display:block !important; }
+  .table { overflow:visible !important; }
+  table { font-size:11px !important; }
+  h3 { margin-top:10px !important; }
+}
