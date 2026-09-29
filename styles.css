@@ -13,3 +13,8 @@ button.danger{background:#b71c1c}.archive{background:#ef6c00!important}.restore{
   table { font-size:11px !important; }
   h3 { margin-top:10px !important; }
 }
+@media print {
+  #finalReport .section { break-inside: avoid; page-break-inside: avoid; }
+  #finalReport table { font-size: 11px; }
+  #finalReport h4 { margin-bottom: 6px; }
+}
